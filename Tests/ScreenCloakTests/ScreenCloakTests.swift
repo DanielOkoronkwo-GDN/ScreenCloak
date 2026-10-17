@@ -359,3 +359,70 @@ struct PlaceholderCustomisationTests {
         _ = Text("x").screenProtectedIfNeeded(permissionProvider: allowed) { Text("Custom") }
     }
 }
+
+// MARK: - Environment
+
+private struct ProbeKey: EnvironmentKey {
+    static let defaultValue = "not set"
+}
+
+private extension EnvironmentValues {
+    var probe: String {
+        get { self[ProbeKey.self] }
+        set { self[ProbeKey.self] = newValue }
+    }
+}
+
+/// Reports the value of the `probe` environment key that it sees when it appears.
+private struct ReadsProbe: View {
+    @Environment(\.probe) private var probe
+    let report: @Sendable (String) -> Void
+
+    var body: some View {
+        Color.clear.onAppear { report(probe) }
+    }
+}
+
+private final class Values: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    func add(_ value: String) { lock.lock(); storage.append(value); lock.unlock() }
+    var all: [String] { lock.lock(); defer { lock.unlock() }; return storage }
+}
+
+@Suite("Environment", .serialized)
+@MainActor
+struct EnvironmentPropagationTests {
+
+    @Test("The protected content sees environment values set above the modifier")
+    func contentSeesEnvironment() async {
+        let seen = Values()
+        let view = ReadsProbe(report: seen.add)
+            .screenProtected()
+            .environment(\.probe, "from parent")
+        let window = host(view)
+        _ = await waitUntil { !window.descendants(ofType: ProtectedContainerView.self).isEmpty }
+
+        let appeared = await waitUntil { !seen.all.isEmpty }
+
+        #expect(appeared)
+        #expect(seen.all.first == "from parent", "The protected content did not receive the parent's environment")
+    }
+
+    @Test("A custom placeholder sees environment values set above the modifier")
+    func placeholderSeesEnvironment() async {
+        let seen = Values()
+        let view = Text("Secret")
+            .screenProtected([.inactivity]) { ReadsProbe(report: seen.add) }
+            .environment(\.probe, "from parent")
+        let window = host(view)
+        _ = await waitUntil { !window.descendants(ofType: ProtectedContainerView.self).isEmpty }
+
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+        let appeared = await waitUntil { !seen.all.isEmpty }
+
+        #expect(appeared)
+        #expect(seen.all.first == "from parent", "The placeholder did not receive the parent's environment")
+    }
+}
