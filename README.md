@@ -29,7 +29,7 @@ Or add it to `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/<your-username>/ScreenCloak.git", from: "0.1.0")
+    .package(url: "https://github.com/DanielOkoronkwo-GDN/ScreenCloak", from: "0.1.0")
 ]
 ```
 
